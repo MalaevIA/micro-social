@@ -1,0 +1,73 @@
+version: "3.9"
+
+services:
+  auth-service:
+    build: ./auth-service
+    container_name: auth-service
+    ports:
+      - "8001:8000"
+    networks:
+      - backend
+
+  user-service:
+    build: ./user-service
+    container_name: user-service
+    ports:
+      - "8002:8000"
+    networks:
+      - backend
+
+  feed-service:
+    build: ./feed-service
+    container_name: feed-service
+    ports:
+      - "8003:8000"
+    environment:
+      - DATABASE_URL=postgresql+psycopg2://posts_user:secret@postgres:5432/posts_db
+      - USER_SERVICE_URL=http://user-service:8000
+    depends_on:
+      - postgres
+      - user-service
+    networks:
+      - backend
+
+
+  chat-service:
+    build: ./chat-service
+    container_name: chat-service
+    ports:
+      - "8004:8000"
+    networks:
+      - backend
+
+  notifications-service:
+    build: ./notifications-service
+    container_name: notifications-service
+    ports:
+      - "8005:8000"
+    networks:
+      - backend
+
+  recommendations-service:
+    build: ./recommendations-service
+    container_name: recommendations-service
+    ports:
+      - "8006:8000"
+    networks:
+      - backend
+
+  postgres:
+    image: postgres:16
+    container_name: posts-db
+    environment:
+      - POSTGRES_DB=posts_db
+      - POSTGRES_USER=posts_user
+      - POSTGRES_PASSWORD=secret
+    ports:
+      - "5433:5432"
+    networks:
+      - backend
+
+networks:
+  backend:
+    driver: bridge

@@ -3,3 +3,4 @@ uvicorn[standard]
 httpx
 SQLAlchemy
 psycopg2-binary
+pytest

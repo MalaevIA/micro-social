@@ -1,0 +1,56 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  # 1) UNIT-ТЕСТЫ ДЛЯ USER-SERVICE
+  user-service-tests:
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: user-service
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest
+
+      - name: Run unit tests (user-service)
+        run: pytest
+
+  # 2) ИНТЕГРАЦИОННЫЕ ТЕСТЫ ДЛЯ FEED-SERVICE ЧЕРЕЗ DOCKER COMPOSE
+  feed-service-tests:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Build Docker images
+        run: docker compose build
+
+      - name: Run tests for feed-service
+        run: |
+          # поднимаем только postgres в фоне
+          docker compose up -d postgres
+          # запускаем feed-service c pytest внутри контейнера
+          docker compose run --rm feed-service pytest
+        # после выполнения тестов прибиваем контейнеры
+      - name: Shutdown docker compose
+        if: always()
+        run: docker compose down

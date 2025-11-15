@@ -5,14 +5,17 @@ from typing import Optional, List
 
 app = FastAPI(title="User Service")
 
+
 class UserCreate(BaseModel):
     email: str
     username: str
+
 
 class UserUpdate(BaseModel):
     username: Optional[str] = None
     avatar: Optional[str] = None
     bio: Optional[str] = None
+
 
 class User(BaseModel):
     id: str
@@ -21,7 +24,8 @@ class User(BaseModel):
     avatar: Optional[str] = None
     bio: Optional[str] = None
 
-# простейшее in-memory "хранилище"
+
+# простое in-memory "хранилище"
 USERS: dict[str, User] = {}
 
 
@@ -33,7 +37,7 @@ def create_user(user: UserCreate):
         email=user.email,
         username=user.username,
         avatar=None,
-        bio=None
+        bio=None,
     )
     USERS[user_id] = new_user
     return new_user
@@ -53,15 +57,18 @@ def update_user(user_id: str, data: UserUpdate):
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
-    updated = user.copy(update=data.dict(exclude_unset=True))
+    # pydantic v2 style
+    updated = user.model_copy(update=data.model_dump(exclude_unset=True))
     USERS[user_id] = updated
     return updated
 
 
 @app.get("/api/users/search", response_model=List[User])
 def search_users(query: str):
+
     result = [
-        u for u in USERS.values()
+        u
+        for u in USERS.values()
         if query.lower() in u.username.lower() or query.lower() in u.email.lower()
     ]
     return result

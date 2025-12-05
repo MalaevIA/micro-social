@@ -1,17 +1,17 @@
 import os
 import sys
 
-# добавляем путь к папке user-service, чтобы можно было импортировать main.py
 CURRENT_DIR = os.path.dirname(__file__)
 PROJECT_ROOT = os.path.dirname(CURRENT_DIR)
 sys.path.append(PROJECT_ROOT)
 
 from main import app, USERS  # type: ignore
-
 from fastapi.testclient import TestClient
 
 client = TestClient(app)
 
+
+# ---------- UNIT-ТЕСТЫ ----------
 
 def test_create_user():
     USERS.clear()
@@ -28,7 +28,7 @@ def test_create_user():
     assert "id" in data
     assert data["email"] == payload["email"]
     assert data["username"] == payload["username"]
-    assert data["id"] in USERS  # юзер реально появился в "БД"
+    assert data["id"] in USERS
 
 
 def test_get_user():
@@ -43,7 +43,6 @@ def test_get_user():
 
     resp = client.get(f"/api/users/{user_id}")
     assert resp.status_code == 200
-
     data = resp.json()
     assert data["id"] == user_id
     assert data["email"] == "get@example.com"
@@ -68,6 +67,9 @@ def test_update_user():
     data = resp_update.json()
     assert data["username"] == "newname"
     assert data["bio"] == "updated bio"
+
+
+# ---------- ИНТЕГРАЦИОННЫЕ ТЕСТЫ (простые) ----------
 
 def test_get_user_not_found():
     USERS.clear()

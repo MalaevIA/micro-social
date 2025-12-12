@@ -1,25 +1,75 @@
-name: CI
+name: CI/CD Pipeline
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [ main, master, develop ]
   pull_request:
     branches: [ main, master ]
 
 jobs:
   # 1) UNIT-ТЕСТЫ ДЛЯ USER-SERVICE
-  user-service-tests:
+  user-service-unit-tests:
     runs-on: ubuntu-latest
-
     defaults:
       run:
         working-directory: user-service
 
     steps:
-      - name: Checkout repo
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup Python
+      - name: Setup Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: 'pip'
+          cache-dependency-path: 'user-service/requirements.txt'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-cov
+
+      - name: Run unit tests with coverage
+        run: |
+          pytest --cov=./ --cov-report=xml:coverage.xml
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v3
+        with:
+          file: ./coverage.xml
+          directory: ./user-service/
+          flags: unittests
+
+  # 2) ИНТЕГРАЦИОННЫЕ ТЕСТЫ ДЛЯ FEED-SERVICE
+  feed-service-integration-tests:
+    runs-on: ubuntu-latest
+    needs: user-service-unit-tests  # Запускаем после успеха unit-тестов
+    defaults:
+      run:
+        working-directory: feed-service
+
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_DB: test_db
+          POSTGRES_USER: test_user
+          POSTGRES_PASSWORD: test_password
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.13
         uses: actions/setup-python@v5
         with:
           python-version: "3.13"
@@ -30,27 +80,71 @@ jobs:
           pip install -r requirements.txt
           pip install pytest
 
-      - name: Run unit tests (user-service)
-        run: pytest
+      - name: Wait for PostgreSQL
+        run: |
+          for i in {1..30}; do
+            if python -c "import psycopg2; psycopg2.connect(dbname='test_db', user='test_user', password='test_password', host='localhost')" 2>/dev/null; then
+              echo "PostgreSQL is ready"
+              exit 0
+            fi
+            echo "Waiting for PostgreSQL... ($i/30)"
+            sleep 2
+          done
+          exit 1
 
-  # 2) ИНТЕГРАЦИОННЫЕ ТЕСТЫ ДЛЯ FEED-SERVICE ЧЕРЕЗ DOCKER COMPOSE
-  feed-service-tests:
+      - name: Run integration tests
+        env:
+          DATABASE_URL: postgresql://test_user:test_password@localhost:5432/test_db
+        run: pytest --tb=short -v
+
+  # 3) BUILD И PUSH DOCKER IMAGES (только для main/master)
+  build-and-push:
     runs-on: ubuntu-latest
-
+    needs: [user-service-unit-tests, feed-service-integration-tests]
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+    
     steps:
-      - name: Checkout repo
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Build Docker images
-        run: docker compose build
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
-      - name: Run tests for feed-service
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Build and push user-service
+        uses: docker/build-push-action@v5
+        with:
+          context: ./user-service
+          file: ./user-service/Dockerfile
+          push: true
+          tags: |
+            ${{ secrets.DOCKER_USERNAME }}/user-service:latest
+            ${{ secrets.DOCKER_USERNAME }}/user-service:${{ github.sha }}
+
+      - name: Build and push feed-service
+        uses: docker/build-push-action@v5
+        with:
+          context: ./feed-service
+          file: ./feed-service/Dockerfile
+          push: true
+          tags: |
+            ${{ secrets.DOCKER_USERNAME }}/feed-service:latest
+            ${{ secrets.DOCKER_USERNAME }}/feed-service:${{ github.sha }}
+
+  # 4) DEPLOY (только для main/master) - пример для k8s
+  deploy:
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+    
+    steps:
+      - name: Deploy to Kubernetes
         run: |
-          # поднимаем только postgres в фоне
-          docker compose up -d postgres
-          # запускаем feed-service c pytest внутри контейнера
-          docker compose run --rm feed-service pytest
-        # после выполнения тестов прибиваем контейнеры
-      - name: Shutdown docker compose
-        if: always()
-        run: docker compose down
+          echo "Deployment would happen here"
+          # kubectl apply -f k8s/
+        # Для реального использования нужен доступ к кластеру k8s

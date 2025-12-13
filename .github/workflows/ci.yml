@@ -103,7 +103,7 @@ jobs:
     needs: [ user-service-unit-tests, feed-service-integration-tests ]
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
 
-    # 🚨 КРИТИЧЕСКИ ВАЖНО: отключаем кэширование Docker Hub
+    # КРИТИЧЕСКИ ВАЖНО: отключаем кэширование Docker Hub
     env:
       DOCKER_BUILDKIT: 1
       BUILDKIT_PROGRESS: plain
@@ -118,7 +118,7 @@ jobs:
           driver-opts: |
             image=moby/buildkit:latest
 
-      # 🔐 АУТЕНТИФИКАЦИЯ ТОЛЬКО В YANDEX
+      # АУТЕНТИФИКАЦИЯ ТОЛЬКО В YANDEX
       - name: Login to YC Registry
         uses: docker/login-action@v3
         with:
@@ -126,11 +126,11 @@ jobs:
           username: json_key
           password: ${{ secrets.YC_KEYS }}
 
-      # 🚫 ЯВНО ЛОГАУТ ИЗ DOCKER HUB
+      # ЯВНО ЛОГАУТ ИЗ DOCKER HUB
       - name: Logout from Docker Hub (если был логин)
         run: docker logout registry-1.docker.io
 
-      # 🏗️ USER-SERVICE ТОЛЬКО ДЛЯ YC
+      #  USER-SERVICE ТОЛЬКО ДЛЯ YC
       - name: Build and push user-service to YC
         uses: docker/build-push-action@v5
         with:
@@ -145,7 +145,7 @@ jobs:
           # Важно: отключаем обращение к Docker Hub
           no-cache: true
 
-      # 🏗️ FEED-SERVICE ТОЛЬКО ДЛЯ YC
+      # FEED-SERVICE ТОЛЬКО ДЛЯ YC
       - name: Build and push feed-service to YC
         uses: docker/build-push-action@v5
         with:
@@ -161,13 +161,20 @@ jobs:
 
   # 4) DEPLOY (только для main/master) - пример для k8s
   deploy:
+    name: Deploy
     runs-on: ubuntu-latest
-    needs: build-and-push
+    needs: [build-and-push-to-yc]
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
 
     steps:
-      - name: Deploy to Kubernetes
-        run: |
-          echo "Deployment would happen here"
-          # kubectl apply -f k8s/
-          # Для реального использования нужен доступ к кластеру k8s
+      - name: Deploy serverless container
+        uses: yc-actions/yc-sls-container-deploy@v1
+        with:
+          yc-sa-json-credentials: ${{ secrets.YC_KEYS }}
+          container-name: ${{ secrets.YC_CONTAINER_NAME }}
+          folder-id: ${{ secrets.YC_FOLDER_ID }}
+          revision-image-url: cr.yandex/${{ secrets.YC_REGISTRY_ID }}/user-service:latest
+          revision-service-account-id: ${{ secrets.YC_SA_ID }}
+          revision-env: |
+            AMQP_URL=${{ secrets.ENV_AMQP_URL }}
+            POSTGRES_URL=${{ secrets.ENV_POSTGRES_URL }}

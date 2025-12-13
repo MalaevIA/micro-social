@@ -100,8 +100,13 @@ jobs:
   # 3) BUILD И PUSH DOCKER IMAGES В YANDEX CONTAINER REGISTRY
   build-and-push:
     runs-on: ubuntu-latest
-    needs: [user-service-unit-tests, feed-service-integration-tests]
+    needs: [ user-service-unit-tests, feed-service-integration-tests ]
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+
+    # 🚨 КРИТИЧЕСКИ ВАЖНО: отключаем кэширование Docker Hub
+    env:
+      DOCKER_BUILDKIT: 1
+      BUILDKIT_PROGRESS: plain
 
     steps:
       - name: Checkout repository
@@ -109,8 +114,11 @@ jobs:
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
+        with:
+          driver-opts: |
+            image=moby/buildkit:latest
 
-      #  АУТЕНТИФИКАЦИЯ В YANDEX CONTAINER REGISTRY
+      # 🔐 АУТЕНТИФИКАЦИЯ ТОЛЬКО В YANDEX
       - name: Login to YC Registry
         uses: docker/login-action@v3
         with:
@@ -118,8 +126,12 @@ jobs:
           username: json_key
           password: ${{ secrets.YC_KEYS }}
 
-      # 🏗 СБОРКА И ПУШ USER-SERVICE
-      - name: Build and push user-service
+      # 🚫 ЯВНО ЛОГАУТ ИЗ DOCKER HUB
+      - name: Logout from Docker Hub (если был логин)
+        run: docker logout registry-1.docker.io
+
+      # 🏗️ USER-SERVICE ТОЛЬКО ДЛЯ YC
+      - name: Build and push user-service to YC
         uses: docker/build-push-action@v5
         with:
           context: ./user-service
@@ -128,9 +140,13 @@ jobs:
           tags: |
             cr.yandex/${{ secrets.YC_REGISTRY_ID }}/user-service:latest
             cr.yandex/${{ secrets.YC_REGISTRY_ID }}/user-service:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          # Важно: отключаем обращение к Docker Hub
+          no-cache: true
 
-      #  СБОРКА И ПУШ FEED-SERVICE
-      - name: Build and push feed-service
+      # 🏗️ FEED-SERVICE ТОЛЬКО ДЛЯ YC
+      - name: Build and push feed-service to YC
         uses: docker/build-push-action@v5
         with:
           context: ./feed-service
@@ -139,6 +155,9 @@ jobs:
           tags: |
             cr.yandex/${{ secrets.YC_REGISTRY_ID }}/feed-service:latest
             cr.yandex/${{ secrets.YC_REGISTRY_ID }}/feed-service:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          no-cache: true
 
   # 4) DEPLOY (только для main/master) - пример для k8s
   deploy:
